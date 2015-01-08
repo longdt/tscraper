@@ -1,9 +1,20 @@
 package com.solt.tscraper.tracker.http;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.util.Map;
 
+import org.apache.commons.io.IOUtils;
+
+import com.solt.tscraper.bcodec.BDecoder;
+import com.solt.tscraper.bcodec.BEValue;
 import com.solt.tscraper.common.Torrent;
 import com.solt.tscraper.common.TorrentState;
 import com.solt.tscraper.tracker.ScrapeException;
@@ -14,10 +25,73 @@ public class HTTPTrackerScraper extends TrackerScraper {
 	public HTTPTrackerScraper(Torrent torrent, URI announce) {
 		super(torrent, announce);
 	}
+	
+	private URL buildScrapeRequestUrl() throws MalformedURLException, UnsupportedEncodingException {
+		String base = getScrapeUrl().toString();
+		StringBuilder url = new StringBuilder(base);
+		url.append(base.contains("?") ? "&" : "?")
+			.append("info_hash=")
+			.append(URLEncoder.encode(
+				new String(torrent.getInfoHash(), Torrent.BYTE_ENCODING),
+				Torrent.BYTE_ENCODING));
+		return new URL(url.toString());
+	}
 
 	@Override
 	public TorrentState scrape() {
-		return null;
+		HttpURLConnection conn = null;
+		InputStream in = null;
+		try {
+			URL target = buildScrapeRequestUrl();
+			conn = (HttpURLConnection)target .openConnection();
+			in = conn.getInputStream();
+		} catch (IOException ioe) {
+			if (conn != null) {
+				in = conn.getErrorStream();
+			}
+		}
+		// At this point if the input stream is null it means we have neither a
+		// response body nor an error stream from the server. No point in going
+		// any further.
+		if (in == null) {
+			throw new ScrapeException("No response or unreachable tracker!");
+		}
+		try {
+			byte[] data = IOUtils.toByteArray(in);
+			BEValue decoded = BDecoder.bdecode(ByteBuffer.wrap(data));
+			if (decoded == null) {
+				throw new ScrapeException(
+					"Could not decode tracker message (not B-encoded?)!");
+			}
+			Map<String, BEValue> params = decoded.getMap();
+			BEValue failure = params.get("failure reason");
+			if (failure != null) {
+				throw new ScrapeException("failure reason from tracker: " + failure.getString());
+			}
+			BEValue files = params.get("files");
+			Map<String, BEValue> infos = files.getMap().values().iterator().next().getMap();
+			int compelete = infos.get("complete").getInt();
+			int downloaded = infos.get("downloaded").getInt();
+			int incomplete = infos.get("incomplete").getInt();
+			return new TorrentState(compelete, downloaded, incomplete);
+		} catch (IOException e) {
+			e.printStackTrace();
+			return new TorrentState(0, 0, 0);
+		} finally {
+			try {
+				in.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			InputStream err = conn.getErrorStream();
+			try {
+				if (err != null) {
+					err.close();
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
 	}
 	
 	   /**
@@ -33,7 +107,7 @@ public class HTTPTrackerScraper extends TrackerScraper {
      * @return
 	 * @throws MalformedURLException 
      */
-    public URL getScrapeUrl() throws MalformedURLException {
+    private URL getScrapeUrl() throws MalformedURLException {
     	if (scrapeUrl != null) {
     		return scrapeUrl;
     	}
