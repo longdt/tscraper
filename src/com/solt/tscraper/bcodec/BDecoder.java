@@ -26,8 +26,6 @@ import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.apache.commons.io.input.AutoCloseInputStream;
-
 
 /**
  * B-encoding decoder.
@@ -99,8 +97,7 @@ public class BDecoder {
 	 * @param data The {@link ByteBuffer} to read from.
 	 */
 	public static BEValue bdecode(ByteBuffer data) throws IOException {
-		return BDecoder.bdecode(new AutoCloseInputStream(
-			new ByteArrayInputStream(data.array())));
+		return BDecoder.bdecode(new ByteArrayInputStream(data.array(), data.position(), data.remaining()));
 	}
 
 	/**

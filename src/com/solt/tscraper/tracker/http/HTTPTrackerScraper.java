@@ -26,8 +26,8 @@ public class HTTPTrackerScraper extends TrackerScraper {
 		super(torrent, announce);
 	}
 	
-	private URL buildScrapeRequestUrl() throws MalformedURLException, UnsupportedEncodingException {
-		String base = getScrapeUrl().toString();
+	public static URL buildScrapeRequestUrl(URI announce, Torrent torrent) throws MalformedURLException, UnsupportedEncodingException {
+		String base = getScrapeUrl(announce).toString();
 		StringBuilder url = new StringBuilder(base);
 		url.append(base.contains("?") ? "&" : "?")
 			.append("info_hash=")
@@ -42,8 +42,10 @@ public class HTTPTrackerScraper extends TrackerScraper {
 		HttpURLConnection conn = null;
 		InputStream in = null;
 		try {
-			URL target = buildScrapeRequestUrl();
-			conn = (HttpURLConnection)target .openConnection();
+			if (scrapeUrl == null) {
+				scrapeUrl = buildScrapeRequestUrl(announce, torrent);
+			}
+			conn = (HttpURLConnection) scrapeUrl .openConnection();
 			in = conn.getInputStream();
 		} catch (IOException ioe) {
 			if (conn != null) {
@@ -58,22 +60,7 @@ public class HTTPTrackerScraper extends TrackerScraper {
 		}
 		try {
 			byte[] data = IOUtils.toByteArray(in);
-			BEValue decoded = BDecoder.bdecode(ByteBuffer.wrap(data));
-			if (decoded == null) {
-				throw new ScrapeException(
-					"Could not decode tracker message (not B-encoded?)!");
-			}
-			Map<String, BEValue> params = decoded.getMap();
-			BEValue failure = params.get("failure reason");
-			if (failure != null) {
-				throw new ScrapeException("failure reason from tracker: " + failure.getString());
-			}
-			BEValue files = params.get("files");
-			Map<String, BEValue> infos = files.getMap().values().iterator().next().getMap();
-			int compelete = infos.get("complete").getInt();
-			int downloaded = infos.get("downloaded").getInt();
-			int incomplete = infos.get("incomplete").getInt();
-			return new TorrentState(compelete, downloaded, incomplete);
+			return parseScrapeResponse(ByteBuffer.wrap(data));
 		} catch (IOException e) {
 			e.printStackTrace();
 			return new TorrentState(0, 0, 0);
@@ -94,6 +81,25 @@ public class HTTPTrackerScraper extends TrackerScraper {
 		}
 	}
 	
+	public static TorrentState parseScrapeResponse(ByteBuffer data) throws IOException {
+		BEValue decoded = BDecoder.bdecode(data);
+		if (decoded == null) {
+			throw new ScrapeException(
+				"Could not decode tracker message (not B-encoded?)!");
+		}
+		Map<String, BEValue> params = decoded.getMap();
+		BEValue failure = params.get("failure reason");
+		if (failure != null) {
+			throw new ScrapeException("failure reason from tracker: " + failure.getString());
+		}
+		BEValue files = params.get("files");
+		Map<String, BEValue> infos = files.getMap().values().iterator().next().getMap();
+		int compelete = infos.get("complete").getInt();
+		int downloaded = infos.get("downloaded").getInt();
+		int incomplete = infos.get("incomplete").getInt();
+		return new TorrentState(compelete, downloaded, incomplete);
+	}
+	
 	   /**
      * Retrieves the scrape url for the tracker.
      * 
@@ -107,40 +113,36 @@ public class HTTPTrackerScraper extends TrackerScraper {
      * @return
 	 * @throws MalformedURLException 
      */
-    private URL getScrapeUrl() throws MalformedURLException {
-    	if (scrapeUrl != null) {
-    		return scrapeUrl;
-    	}
-    	String announce = this.announce.toString();
-        int slashIndex = announce.lastIndexOf('/');
+    public static URL getScrapeUrl(URI announce) throws MalformedURLException {
+    	String announceStr = announce.toString();
+        int slashIndex = announceStr.lastIndexOf('/');
         if (slashIndex == -1) {
             throw new ScrapeException(
-                    "Could not find a / in the announce URL '" + announce
+                    "Could not find a / in the announce URL '" + announceStr
                             + "'");
         }
 
-        int announceIndex = announce.indexOf("announce", slashIndex);
+        int announceIndex = announceStr.indexOf("announce", slashIndex);
         if (announceIndex == -1) {
             throw new ScrapeException(
                     "Could not find 'announce' after the last / in the announce URL '"
-                            + announce + "'");
+                            + announceStr + "'");
         }
 
         if ((slashIndex == (announceIndex - 1)) == false) {
             throw new ScrapeException(
                     "Could not find 'announce' after the last / in the announce URL '"
-                            + announce + "'");
+                            + announceStr + "'");
         }
 
         // Get text including the last slash
-        String scrapeLink = announce.substring(0, slashIndex + 1);
+        String scrapeLink = announceStr.substring(0, slashIndex + 1);
         // Replace the announce with scrape
         scrapeLink += "scrape";
         // Get text after announce
-        scrapeLink += announce.substring(
-                announceIndex + "announce".length(), announce.length());
-        this.scrapeUrl = new URL(scrapeLink);
-        return scrapeUrl;
+        scrapeLink += announceStr.substring(
+                announceIndex + "announce".length(), announceStr.length());
+        return new URL(scrapeLink);
     }
 
 }

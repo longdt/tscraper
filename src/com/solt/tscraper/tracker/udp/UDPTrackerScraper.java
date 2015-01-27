@@ -32,27 +32,13 @@ public class UDPTrackerScraper extends TrackerScraper {
 	private static final int UDP_BASE_TIMEOUT_SECONDS = 15;
 
 	/**
-	 * We don't try more than 8 times (3840 seconds, as per the formula defined
-	 * for the backing-off timeout.
-	 *
-	 * @see #UDP_BASE_TIMEOUT_SECONDS
-	 */
-	private static final int UDP_MAX_TRIES = 8;
-
-	/**
-	 * For STOPPED announce event, we don't want to be bothered with waiting
-	 * that long. We'll try once and bail-out early.
-	 */
-	private static final int UDP_MAX_TRIES_ON_STOPPED = 1;
-
-	/**
 	 * Maximum UDP packet size expected, in bytes.
 	 *
 	 * The biggest packet in the exchange is the announce response, which in 20
 	 * bytes + 6 bytes per peer. Common numWant is 50, so 20 + 6 * 50 = 320.
 	 * With headroom, we'll ask for 512 bytes.
 	 */
-	private static final int UDP_PACKET_LENGTH = 512;
+	public static final int UDP_PACKET_LENGTH = 512;
 
 	private final InetSocketAddress address;
 	private final Random random;
@@ -67,7 +53,7 @@ public class UDPTrackerScraper extends TrackerScraper {
 		CONNECT_REQUEST, SCRAPE_REQUEST;
 	};
 
-	private final static long DEFAULT_CONNECTION_ID = 0x41727101980l;
+	public final static long DEFAULT_CONNECTION_ID = 0x41727101980l;
 
 
 	public UDPTrackerScraper(Torrent torrent, URI announce) {
@@ -83,20 +69,22 @@ public class UDPTrackerScraper extends TrackerScraper {
 	 * Offset Size Name Value 0 64-bit integer connection_id 0x41727101980 8
 	 * 32-bit integer action 0 // connect 12 32-bit integer transaction_id 16
 	 */
-	private ByteBuffer createConnectRequest() {
+	public static ByteBuffer createConnectRequest(int transactionId) {
 		ByteBuffer bBuffer = ByteBuffer.allocate(16);
 		bBuffer.putLong(DEFAULT_CONNECTION_ID);
 		bBuffer.putInt(Action.CONNECT);
 		bBuffer.putInt(transactionId);
+		bBuffer.flip();
 		return bBuffer;
 	}
 
-	private ByteBuffer createScrapeRequest() {
+	public static ByteBuffer createScrapeRequest(long connectionId, int transactionId, Torrent torrent) {
 		ByteBuffer bBuffer = ByteBuffer.allocate(36);
 		bBuffer.putLong(connectionId);
 		bBuffer.putInt(Action.SCRAPE);
 		bBuffer.putInt(transactionId);
 		bBuffer.put(torrent.getInfoHash());
+		bBuffer.flip();
 		return bBuffer;
 	}
 
@@ -130,7 +118,7 @@ public class UDPTrackerScraper extends TrackerScraper {
 	@Override
 	public TorrentState scrape() {
 		State state = State.CONNECT_REQUEST;
-		int maxAttempts = UDP_MAX_TRIES;
+		int maxAttempts = 1;
 		int attempts = -1;
 
 		try {
@@ -155,7 +143,7 @@ public class UDPTrackerScraper extends TrackerScraper {
 
 				switch (state) {
 				case CONNECT_REQUEST:
-					send(createConnectRequest());
+					send(createConnectRequest(transactionId));
 
 					try {
 						this.handleConnectResponse(TrackerResponse.parse(this
@@ -173,7 +161,7 @@ public class UDPTrackerScraper extends TrackerScraper {
 					break;
 
 				case SCRAPE_REQUEST:
-					this.send(createScrapeRequest());
+					this.send(createScrapeRequest(connectionId, transactionId, torrent));
 
 					try {
 						return handleScrapeResponse(TrackerResponse
@@ -198,7 +186,7 @@ public class UDPTrackerScraper extends TrackerScraper {
 
 			// When the maximum number of attempts was reached, the announce
 			// really timed-out. We'll try again in the next announce loop.
-			throw new ScrapeException("Timeout while scraping to tracker!");
+			throw new ScrapeException("Timeout while scraping to tracker: " + announce);
 		} catch (IOException ioe) {
 			throw new ScrapeException("Error while announcing to tracker: "
 					+ ioe.getMessage(), ioe);
