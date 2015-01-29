@@ -49,11 +49,11 @@ public class BEValue {
 	}
 
 	public BEValue(int value) {
-		this.value = new Integer(value);
+		this.value = Integer.valueOf(value);
 	}
 
 	public BEValue(long value) {
-		this.value = new Long(value);
+		this.value = Long.valueOf(value);
 	}
 
 	public BEValue(Number value) {

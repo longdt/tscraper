@@ -106,7 +106,7 @@ public class TorrentScraperImpl implements TorrentScraper {
 				if (protocol.equals("udp")) {
 					udpTrackers.put(new InetSocketAddress(tracker.getHost(),
 							tracker.getPort()), new State(tracker));
-				} else if (protocol.equals("http") || protocol.equals("https")) {
+				} else if (protocol.equals("http")) {
 					httpTrackers.add(tracker);
 				} else {
 					fireTrackerErrorEvent(tracker, new ScrapeException(
@@ -127,10 +127,20 @@ public class TorrentScraperImpl implements TorrentScraper {
 			initUDPRequest(dataChannel, selector);
 			initTCPRequest(selector);
 			loopIO(selector);
+			closeIOResources(selector);
 		} catch (IOException e) {
 			fireErrorEvent(e);
 		}
 		return null;
+	}
+
+	private void closeIOResources(Selector selector) throws IOException {
+		Set<SelectionKey> keys = selector.keys();
+		for (SelectionKey key : keys) {
+			key.cancel();
+			key.channel().close();
+		}
+		selector.close();
 	}
 
 	private void initTCPRequest(Selector selector) throws IOException {
@@ -341,7 +351,7 @@ public class TorrentScraperImpl implements TorrentScraper {
 			// send request
 			try {
 				if (dataChannel.send(buffer, address) == 0) {
-					writeQueue.add(Pair.of(buffer, address));
+					writeQueue.add(Pair.of(buffer, (SocketAddress)address));
 				}
 			} catch (UnresolvedAddressException e) {
 				e.printStackTrace();
